@@ -59,9 +59,8 @@ rotate_log() {
 # ---------------------------------------------------------------------------
 
 notify() {
-    local title="update-agent"
-    local message="$1"
-    osascript -e "display notification \"$message\" with title \"$title\"" 2>/dev/null || true
+    local message="${1//\"/\'}"
+    osascript -e "display notification \"$message\" with title \"update-agent\"" 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
@@ -99,9 +98,7 @@ update_gemini() {
 log_msg() {
     local timestamp
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    local msg="[$timestamp] $1"
-    mkdir -p "$(dirname "$LOG_FILE")"
-    echo "$msg" >> "$LOG_FILE"
+    echo "[$timestamp] $1" >> "$LOG_FILE"
 }
 
 # ---------------------------------------------------------------------------
@@ -109,6 +106,7 @@ log_msg() {
 # ---------------------------------------------------------------------------
 
 cmd_run() {
+    mkdir -p "$(dirname "$LOG_FILE")"
     rotate_log
     log_msg "=== update-agent run started ==="
 
@@ -154,7 +152,8 @@ cmd_run() {
                 summary="${summary}${tool} up to date, "
             fi
         else
-            log_msg "FAIL: $tool update failed: $output"
+            log_msg "FAIL: $tool update failed"
+            echo "$output" >> "$LOG_FILE"
             failures="${failures}${tool}, "
         fi
     done
@@ -262,7 +261,13 @@ cmd_uninstall() {
 
     if [[ "$remove_data" =~ ^[Yy]$ ]]; then
         rm -f "$CONFIG_FILE"
-        rm -rf "$(dirname "$LOG_FILE")"
+        local log_dir
+        log_dir="$(dirname "$LOG_FILE")"
+        if [[ "$log_dir" == "$HOME"/.* || "$log_dir" == "$HOME"/* ]] && [[ "$log_dir" != "$HOME" ]]; then
+            rm -rf "$log_dir"
+        else
+            echo "WARNING: refusing to remove $log_dir (not under \$HOME)"
+        fi
         echo "Removed config and logs"
     else
         echo "Kept config and logs"
