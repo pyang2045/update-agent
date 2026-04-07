@@ -7,7 +7,7 @@ set -euo pipefail
 #   curl -fsSL https://raw.githubusercontent.com/pyang/update-agent/main/install.sh | bash
 # ---------------------------------------------------------------------------
 
-readonly REPO_URL="https://raw.githubusercontent.com/pyang/update-agent/main"
+readonly REPO_URL="https://raw.githubusercontent.com/pyang2045/update-agent/master"
 readonly INSTALL_DIR="$HOME/.local/bin"
 readonly INSTALL_PATH="$INSTALL_DIR/update-agent"
 readonly CONFIG_FILE="$HOME/.update-agent.conf"

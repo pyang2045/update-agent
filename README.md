@@ -6,13 +6,13 @@ Auto-update Claude Code, Codex, and Gemini CLI daily on macOS.
 
 From a clone:
 
-    git clone https://github.com/pyang/update-agent.git
+    git clone https://github.com/pyang2045/update-agent.git
     cd update-agent
     bash install.sh
 
 Or one-liner:
 
-    curl -fsSL https://raw.githubusercontent.com/pyang/update-agent/main/install.sh | sh
+    curl -fsSL https://raw.githubusercontent.com/pyang2045/update-agent/master/install.sh | bash
 
 ## Usage
 
