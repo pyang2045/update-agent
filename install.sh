@@ -104,10 +104,20 @@ fi
 # 4. Source config for schedule values
 # ---------------------------------------------------------------------------
 
-SCHEDULE_HOUR=6
-SCHEDULE_MINUTE=0
-# shellcheck source=/dev/null
-source "$CONFIG_FILE"
+SCHEDULE_HOUR=$(grep -E '^SCHEDULE_HOUR=' "$CONFIG_FILE" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"'"'" || true)
+SCHEDULE_MINUTE=$(grep -E '^SCHEDULE_MINUTE=' "$CONFIG_FILE" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"'"'" || true)
+SCHEDULE_HOUR="${SCHEDULE_HOUR:-6}"
+SCHEDULE_MINUTE="${SCHEDULE_MINUTE:-0}"
+
+# Validate schedule values
+if ! [[ "$SCHEDULE_HOUR" =~ ^[0-9]+$ ]] || (( SCHEDULE_HOUR > 23 )); then
+    error "Invalid SCHEDULE_HOUR in config: '$SCHEDULE_HOUR' (must be 0-23)"
+    exit 1
+fi
+if ! [[ "$SCHEDULE_MINUTE" =~ ^[0-9]+$ ]] || (( SCHEDULE_MINUTE > 59 )); then
+    error "Invalid SCHEDULE_MINUTE in config: '$SCHEDULE_MINUTE' (must be 0-59)"
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # 5. Generate LaunchAgent plist
@@ -157,19 +167,19 @@ EOF
 info "Generated $PLIST_PATH"
 
 # ---------------------------------------------------------------------------
-# 6. Load LaunchAgent
+# 6. Create log directory (before loading plist, which references it)
+# ---------------------------------------------------------------------------
+
+mkdir -p "$LOG_DIR"
+info "Log directory ready: $LOG_DIR"
+
+# ---------------------------------------------------------------------------
+# 7. Load LaunchAgent
 # ---------------------------------------------------------------------------
 
 launchctl unload "$PLIST_PATH" 2>/dev/null || true
 launchctl load "$PLIST_PATH"
 info "LaunchAgent loaded"
-
-# ---------------------------------------------------------------------------
-# 7. Create log directory
-# ---------------------------------------------------------------------------
-
-mkdir -p "$LOG_DIR"
-info "Log directory ready: $LOG_DIR"
 
 # ---------------------------------------------------------------------------
 # 8. Summary
