@@ -15,14 +15,31 @@ LOG_MAX_KB=512
 LOG_KEEP=3
 
 # ---------------------------------------------------------------------------
-# Config
+# Config — safe key=value parser (never source untrusted files)
 # ---------------------------------------------------------------------------
 
+_parse_config_val() {
+    grep -E "^${1}=" "$CONFIG_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"'"'" || true
+}
+
 load_config() {
-    if [[ -f "$CONFIG_FILE" ]]; then
-        # shellcheck source=/dev/null
-        source "$CONFIG_FILE"
+    [[ -f "$CONFIG_FILE" ]] || return 0
+
+    # Refuse to load config writable by group/others
+    local perms
+    perms=$(stat -f '%Lp' "$CONFIG_FILE" 2>/dev/null || stat -c '%a' "$CONFIG_FILE" 2>/dev/null || true)
+    if [[ -n "$perms" ]] && (( 8#$perms & 8#022 )); then
+        echo "WARNING: $CONFIG_FILE is writable by group/others (mode $perms). Skipping." >&2
+        return 0
     fi
+
+    local val
+    val=$(_parse_config_val SCHEDULE_HOUR);   [[ -n "$val" ]] && SCHEDULE_HOUR="$val"
+    val=$(_parse_config_val SCHEDULE_MINUTE); [[ -n "$val" ]] && SCHEDULE_MINUTE="$val"
+    val=$(_parse_config_val TOOLS);           [[ -n "$val" ]] && TOOLS="$val"
+    val=$(_parse_config_val LOG_FILE);        [[ -n "$val" ]] && LOG_FILE="${val/\$HOME/$HOME}"
+    val=$(_parse_config_val LOG_MAX_KB);      [[ -n "$val" ]] && LOG_MAX_KB="$val"
+    val=$(_parse_config_val LOG_KEEP);        [[ -n "$val" ]] && LOG_KEEP="$val"
 }
 
 # ---------------------------------------------------------------------------
@@ -113,7 +130,10 @@ cmd_run() {
     local summary=""
     local failures=""
 
-    for tool in $TOOLS; do
+    local -a tool_list
+    read -ra tool_list <<< "$TOOLS"
+
+    for tool in "${tool_list[@]}"; do
         local version_fn="get_version_${tool}"
         local update_fn="update_${tool}"
 
@@ -182,7 +202,9 @@ cmd_status() {
     echo "update-agent $VERSION"
     echo ""
     echo "Installed tool versions:"
-    for tool in $TOOLS; do
+    local -a tool_list
+    read -ra tool_list <<< "$TOOLS"
+    for tool in "${tool_list[@]}"; do
         local version_fn="get_version_${tool}"
         if declare -f "$version_fn" > /dev/null 2>&1; then
             echo "  $tool: $($version_fn)"
@@ -261,12 +283,10 @@ cmd_uninstall() {
 
     if [[ "$remove_data" =~ ^[Yy]$ ]]; then
         rm -f "$CONFIG_FILE"
-        local log_dir
-        log_dir="$(dirname "$LOG_FILE")"
-        if [[ "$log_dir" == "$HOME"/.* || "$log_dir" == "$HOME"/* ]] && [[ "$log_dir" != "$HOME" ]]; then
+        # Only remove the known app-owned log directory, never a config-derived path
+        local log_dir="$HOME/.local/share/update-agent"
+        if [[ -d "$log_dir" ]]; then
             rm -rf "$log_dir"
-        else
-            echo "WARNING: refusing to remove $log_dir (not under \$HOME)"
         fi
         echo "Removed config and logs"
     else

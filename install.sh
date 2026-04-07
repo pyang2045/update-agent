@@ -4,7 +4,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # install.sh — self-contained installer for update-agent
 # Works both from a repo clone and piped via curl:
-#   curl -fsSL https://raw.githubusercontent.com/pyang/update-agent/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/pyang2045/update-agent/master/install.sh | bash
 # ---------------------------------------------------------------------------
 
 readonly REPO_URL="https://raw.githubusercontent.com/pyang2045/update-agent/master"
@@ -97,6 +97,7 @@ LOG_MAX_KB=512
 # Number of rotated logs to keep
 LOG_KEEP=3
 CONF
+    chmod 600 "$CONFIG_FILE"
     info "Created default config at $CONFIG_FILE"
 fi
 
