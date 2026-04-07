@@ -172,7 +172,7 @@ cmd_run() {
                 summary="${summary}${tool} ${old_version}->${new_version}, "
             else
                 log_msg "$tool already up to date ($old_version)"
-                summary="${summary}${tool} up to date, "
+                summary="${summary}${tool} ${old_version} (up to date), "
             fi
         else
             log_msg "FAIL: $tool update failed"
