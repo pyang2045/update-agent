@@ -115,7 +115,10 @@ update_gemini() {
 log_msg() {
     local timestamp
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    echo "[$timestamp] $1" >> "$LOG_FILE"
+    local line="[$timestamp] $1"
+    echo "$line" >> "$LOG_FILE"
+    # Print to console when run interactively
+    [[ -t 1 ]] && echo "$line"
 }
 
 # ---------------------------------------------------------------------------
