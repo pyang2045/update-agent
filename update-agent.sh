@@ -118,7 +118,7 @@ log_msg() {
     local line="[$timestamp] $1"
     echo "$line" >> "$LOG_FILE"
     # Print to console when run interactively
-    [[ -t 1 ]] && echo "$line"
+    if [[ -t 1 ]]; then echo "$line"; fi
 }
 
 # ---------------------------------------------------------------------------
