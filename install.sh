@@ -24,10 +24,6 @@ warn()  { printf '  \033[1;33m⚠\033[0m %s\n' "$1"; }
 error() { printf '  \033[1;31m✗\033[0m %s\n' "$1" >&2; }
 step()  { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
-# ---------------------------------------------------------------------------
-# 1. Obtain update-agent.sh
-# ---------------------------------------------------------------------------
-
 TMPDIR_CLEANUP=""
 
 cleanup() {
@@ -57,20 +53,12 @@ else
     fi
 fi
 
-# ---------------------------------------------------------------------------
-# 2. Install to ~/.local/bin/update-agent
-# ---------------------------------------------------------------------------
-
 step "Installing update-agent..."
 
 mkdir -p "$INSTALL_DIR"
 cp "$SOURCE_SCRIPT" "$INSTALL_PATH"
 chmod +x "$INSTALL_PATH"
 info "Installed to $INSTALL_PATH"
-
-# ---------------------------------------------------------------------------
-# 3. Write default config (only if it doesn't already exist)
-# ---------------------------------------------------------------------------
 
 step "Configuring..."
 
@@ -101,12 +89,12 @@ CONF
     info "Created default config at $CONFIG_FILE"
 fi
 
-# ---------------------------------------------------------------------------
-# 4. Source config for schedule values
-# ---------------------------------------------------------------------------
+_read_conf_val() {
+    grep -E "^${1}=" "$CONFIG_FILE" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"'"'" || true
+}
 
-SCHEDULE_HOUR=$(grep -E '^SCHEDULE_HOUR=' "$CONFIG_FILE" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"'"'" || true)
-SCHEDULE_MINUTE=$(grep -E '^SCHEDULE_MINUTE=' "$CONFIG_FILE" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"'"'" || true)
+SCHEDULE_HOUR=$(_read_conf_val SCHEDULE_HOUR)
+SCHEDULE_MINUTE=$(_read_conf_val SCHEDULE_MINUTE)
 SCHEDULE_HOUR="${SCHEDULE_HOUR:-6}"
 SCHEDULE_MINUTE="${SCHEDULE_MINUTE:-0}"
 
@@ -119,10 +107,6 @@ if ! [[ "$SCHEDULE_MINUTE" =~ ^[0-9]+$ ]] || (( SCHEDULE_MINUTE > 59 )); then
     error "Invalid SCHEDULE_MINUTE in config: '$SCHEDULE_MINUTE' (must be 0-59)"
     exit 1
 fi
-
-# ---------------------------------------------------------------------------
-# 5. Generate LaunchAgent plist
-# ---------------------------------------------------------------------------
 
 step "Setting up LaunchAgent..."
 
@@ -167,24 +151,13 @@ EOF
 
 info "Generated $PLIST_PATH"
 
-# ---------------------------------------------------------------------------
-# 6. Create log directory (before loading plist, which references it)
-# ---------------------------------------------------------------------------
-
 mkdir -p "$LOG_DIR"
 info "Log directory ready: $LOG_DIR"
 
-# ---------------------------------------------------------------------------
-# 7. Load LaunchAgent
-# ---------------------------------------------------------------------------
-
+# Reload: unload first in case plist was replaced during re-install
 launchctl unload "$PLIST_PATH" 2>/dev/null || true
 launchctl load "$PLIST_PATH"
 info "LaunchAgent loaded"
-
-# ---------------------------------------------------------------------------
-# 8. Summary
-# ---------------------------------------------------------------------------
 
 step "Installation complete!"
 
@@ -201,10 +174,6 @@ printf '    update-agent status      Show installed versions and last update\n'
 printf '    update-agent config      Print current configuration\n'
 printf '    update-agent uninstall   Remove update-agent completely\n'
 printf '\n'
-
-# ---------------------------------------------------------------------------
-# 9. Check if ~/.local/bin is in PATH
-# ---------------------------------------------------------------------------
 
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
     warn "WARNING: $INSTALL_DIR is not in your PATH"

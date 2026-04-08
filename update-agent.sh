@@ -18,28 +18,32 @@ LOG_KEEP=3
 # Config — safe key=value parser (never source untrusted files)
 # ---------------------------------------------------------------------------
 
-_parse_config_val() {
-    grep -E "^${1}=" "$CONFIG_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"'"'" || true
-}
-
 load_config() {
     [[ -f "$CONFIG_FILE" ]] || return 0
 
-    # Refuse to load config writable by group/others
     local perms
-    perms=$(stat -f '%Lp' "$CONFIG_FILE" 2>/dev/null || stat -c '%a' "$CONFIG_FILE" 2>/dev/null || true)
+    perms=$(stat -f '%Lp' "$CONFIG_FILE" 2>/dev/null || true)
     if [[ -n "$perms" ]] && (( 8#$perms & 8#022 )); then
         echo "WARNING: $CONFIG_FILE is writable by group/others (mode $perms). Skipping." >&2
         return 0
     fi
 
-    local val
-    val=$(_parse_config_val SCHEDULE_HOUR);   [[ -n "$val" ]] && SCHEDULE_HOUR="$val"
-    val=$(_parse_config_val SCHEDULE_MINUTE); [[ -n "$val" ]] && SCHEDULE_MINUTE="$val"
-    val=$(_parse_config_val TOOLS);           [[ -n "$val" ]] && TOOLS="$val"
-    val=$(_parse_config_val LOG_FILE);        [[ -n "$val" ]] && LOG_FILE="${val/\$HOME/$HOME}"
-    val=$(_parse_config_val LOG_MAX_KB);      [[ -n "$val" ]] && LOG_MAX_KB="$val"
-    val=$(_parse_config_val LOG_KEEP);        [[ -n "$val" ]] && LOG_KEEP="$val"
+    # Single-pass parse: read all keys in one loop instead of forking per key
+    local key val
+    while IFS='=' read -r key val; do
+        val="${val%\"}"
+        val="${val#\"}"
+        val="${val%\'}"
+        val="${val#\'}"
+        case "$key" in
+            SCHEDULE_HOUR)   SCHEDULE_HOUR="$val" ;;
+            SCHEDULE_MINUTE) SCHEDULE_MINUTE="$val" ;;
+            TOOLS)           TOOLS="$val" ;;
+            LOG_FILE)        LOG_FILE="${val/\$HOME/$HOME}" ;;
+            LOG_MAX_KB)      LOG_MAX_KB="$val" ;;
+            LOG_KEEP)        LOG_KEEP="$val" ;;
+        esac
+    done < <(grep -E '^[A-Z_]+=' "$CONFIG_FILE" 2>/dev/null || true)
 }
 
 # ---------------------------------------------------------------------------
@@ -53,12 +57,8 @@ rotate_log() {
     size_kb=$(du -k "$LOG_FILE" | cut -f1)
 
     if (( size_kb > LOG_MAX_KB )); then
-        # Delete oldest if at limit
-        if [[ -f "${LOG_FILE}.${LOG_KEEP}" ]]; then
-            rm -f "${LOG_FILE}.${LOG_KEEP}"
-        fi
+        rm -f "${LOG_FILE}.${LOG_KEEP}"
 
-        # Shift existing rotated logs
         local i
         for (( i = LOG_KEEP - 1; i >= 1; i-- )); do
             if [[ -f "${LOG_FILE}.${i}" ]]; then
@@ -66,7 +66,6 @@ rotate_log() {
             fi
         done
 
-        # Rotate current log
         mv "$LOG_FILE" "${LOG_FILE}.1"
     fi
 }
@@ -84,27 +83,21 @@ notify() {
 # Per-tool version and update functions
 # ---------------------------------------------------------------------------
 
-get_version_claude() {
-    claude --version 2>/dev/null | head -1 || echo "not installed"
+get_version() {
+    "$1" --version 2>/dev/null | head -1 || echo "not installed"
 }
 
 update_claude() {
     claude update 2>&1
 }
 
-get_version_codex() {
-    codex --version 2>/dev/null | head -1 || echo "not installed"
-}
-
 update_codex() {
+    command -v brew > /dev/null 2>&1 || { echo "brew not found"; return 1; }
     brew upgrade codex 2>&1
 }
 
-get_version_gemini() {
-    gemini --version 2>/dev/null | head -1 || echo "not installed"
-}
-
 update_gemini() {
+    command -v brew > /dev/null 2>&1 || { echo "brew not found"; return 1; }
     brew upgrade gemini-cli 2>&1
 }
 
@@ -113,16 +106,14 @@ update_gemini() {
 # ---------------------------------------------------------------------------
 
 log_msg() {
-    local timestamp
-    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    local line="[$timestamp] $1"
+    local line
+    printf -v line '[%(%Y-%m-%d %H:%M:%S)T] %s' -1 "$1"
     echo "$line" >> "$LOG_FILE"
-    # Print to console when run interactively
     if [[ -t 1 ]]; then echo "$line"; fi
 }
 
 # ---------------------------------------------------------------------------
-# cmd_run — main update loop
+# cmd_run
 # ---------------------------------------------------------------------------
 
 cmd_run() {
@@ -137,36 +128,25 @@ cmd_run() {
     read -ra tool_list <<< "$TOOLS"
 
     for tool in "${tool_list[@]}"; do
-        local version_fn="get_version_${tool}"
         local update_fn="update_${tool}"
 
-        # Check if functions exist
-        if ! declare -f "$version_fn" > /dev/null 2>&1; then
+        if ! declare -f "$update_fn" > /dev/null 2>&1; then
             log_msg "WARN: unknown tool '$tool', skipping"
             continue
         fi
 
-        # Check if tool binary exists
         if ! command -v "$tool" > /dev/null 2>&1; then
             log_msg "WARN: '$tool' not found on PATH, skipping"
             continue
         fi
 
-        # Check if brew is needed but missing
-        if [[ "$update_fn" == update_codex || "$update_fn" == update_gemini ]]; then
-            if ! command -v brew > /dev/null 2>&1; then
-                log_msg "WARN: brew not found, skipping $tool"
-                continue
-            fi
-        fi
-
         local old_version new_version output
-        old_version=$("$version_fn")
+        old_version=$(get_version "$tool")
 
         log_msg "Updating $tool (current: $old_version)..."
 
         if output=$("$update_fn" 2>&1); then
-            new_version=$("$version_fn")
+            new_version=$(get_version "$tool")
             if [[ "$old_version" != "$new_version" ]]; then
                 log_msg "$tool updated: $old_version -> $new_version"
                 summary="${summary}${tool} ${old_version}->${new_version}, "
@@ -181,13 +161,11 @@ cmd_run() {
         fi
     done
 
-    # Trim trailing comma-space
     summary="${summary%, }"
     failures="${failures%, }"
 
     log_msg "=== update-agent run finished ==="
 
-    # Send notification
     if [[ -n "$failures" ]]; then
         notify "$failures update failed. See $LOG_FILE"
     elif [[ -n "$summary" ]]; then
@@ -208,12 +186,7 @@ cmd_status() {
     local -a tool_list
     read -ra tool_list <<< "$TOOLS"
     for tool in "${tool_list[@]}"; do
-        local version_fn="get_version_${tool}"
-        if declare -f "$version_fn" > /dev/null 2>&1; then
-            echo "  $tool: $($version_fn)"
-        else
-            echo "  $tool: (unknown tool)"
-        fi
+        echo "  $tool: $(get_version "$tool")"
     done
 
     echo ""
@@ -265,28 +238,21 @@ cmd_config() {
 cmd_uninstall() {
     echo "Uninstalling update-agent..."
 
-    # Unload LaunchAgent
     if launchctl list com.pyang.update-agent > /dev/null 2>&1; then
         echo "Unloading LaunchAgent..."
         launchctl unload "$PLIST_PATH" 2>/dev/null || true
     fi
 
-    # Remove plist
-    if [[ -f "$PLIST_PATH" ]]; then
-        rm -f "$PLIST_PATH"
-        echo "Removed $PLIST_PATH"
-    fi
+    rm -f "$PLIST_PATH" && echo "Removed $PLIST_PATH"
 
-    # Ask about config and logs
     local remove_data="n"
     if [[ -t 0 ]]; then
-        printf "Remove config (%s) and logs (%s)? [y/N] " "$CONFIG_FILE" "$(dirname "$LOG_FILE")"
+        printf "Remove config (%s) and logs? [y/N] " "$CONFIG_FILE"
         read -r remove_data
     fi
 
     if [[ "$remove_data" =~ ^[Yy]$ ]]; then
         rm -f "$CONFIG_FILE"
-        # Only remove the known app-owned log directory, never a config-derived path
         local log_dir="$HOME/.local/share/update-agent"
         if [[ -d "$log_dir" ]]; then
             rm -rf "$log_dir"
@@ -296,11 +262,8 @@ cmd_uninstall() {
         echo "Kept config and logs"
     fi
 
-    # Remove the script itself (must be last)
-    if [[ -f "$SCRIPT_PATH" ]]; then
-        rm -f "$SCRIPT_PATH"
-        echo "Removed $SCRIPT_PATH"
-    fi
+    # Must be last — the running script deletes itself
+    rm -f "$SCRIPT_PATH" && echo "Removed $SCRIPT_PATH"
 
     echo "update-agent uninstalled."
 }
