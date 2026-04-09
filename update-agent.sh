@@ -106,8 +106,8 @@ update_gemini() {
 # ---------------------------------------------------------------------------
 
 log_msg() {
-    local line
-    printf -v line '[%(%Y-%m-%d %H:%M:%S)T] %s' -1 "$1"
+    # macOS ships bash 3.2 which lacks printf %T — must use date
+    local line="[$(date '+%Y-%m-%d %H:%M:%S')] $1"
     echo "$line" >> "$LOG_FILE"
     if [[ -t 1 ]]; then echo "$line"; fi
 }
